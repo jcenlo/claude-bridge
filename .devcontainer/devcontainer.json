@@ -1,0 +1,23 @@
+{
+  "name": "claude-bridge",
+  "image": "oven/bun:1",
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {},
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+  "postCreateCommand": "apt-get update && apt-get install -y universal-ctags sqlite3 && bun install",
+  "forwardPorts": [3456],
+  "portsAttributes": {
+    "3456": {
+      "label": "MCP Server",
+      "onAutoForward": "notify"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "biomejs.biome"
+      ]
+    }
+  }
+}
