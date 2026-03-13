@@ -31,10 +31,11 @@ fi
 
 echo "[claude-bridge] Updating snapshots for changed files..."
 
-# Llama al endpoint del MCP server via curl para triggerear snapshot
-# El server detecta los archivos y actualiza los .snap.md correspondientes
-PAYLOAD=$(printf '{"project":"%s","files":%s}' "$PROJECT" "$(echo "$RELEVANT" | jq -R -s -c 'split("\n") | map(select(length > 0))')")
+# Construye array JSON de archivos sin depender de jq
+FILES_JSON=$(echo "$RELEVANT" | awk 'NF{printf "%s\"%s\"", sep, $0; sep=","} END{print ""}' | sed 's/^/[/;s/$/]/')
+PAYLOAD=$(printf '{"project":"%s","files":%s}' "$PROJECT" "$FILES_JSON")
 
+# Llama al endpoint del MCP server para triggerear snapshot
 curl -s -X POST "$MCP_SERVER/snapshot" \
   -H "Content-Type: application/json" \
   -d "$PAYLOAD" > /dev/null 2>&1 || true
