@@ -1,7 +1,7 @@
 # PROJECT: claude-bridge
 > stack: (fill this in)
 > status: active
-> last_sync: 2026-03-13T14:40:37Z
+> last_sync: 2026-03-13T14:44:40Z
 
 ## sections
 
