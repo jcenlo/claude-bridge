@@ -1,0 +1,27 @@
+{
+  "name": "claude-bridge",
+  "version": "0.1.0",
+  "description": "MCP server — contexto compartido entre Claude.ai y Claude Code",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "start": "bun dist/index.js",
+    "check": "biome check --write .",
+    "setup": "bun scripts/setup-hooks.ts",
+    "bootstrap": "bun scripts/bootstrap.ts",
+    "cleanup": "bun scripts/cleanup.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "better-sqlite3": "^9.4.3",
+    "chokidar": "^4.0.0",
+    "execa": "^9.0.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.6.0",
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/bun": "latest"
+  }
+}

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.DS_Store
+*.zip
+*.db
+*.sqlite
+.claude-bridge/
