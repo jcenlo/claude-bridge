@@ -1,4 +1,4 @@
-// Tipos compartidos del sistema claude-bridge
+// Shared types for the claude-bridge system
 
 export type SectionStatus =
   | 'empty'
