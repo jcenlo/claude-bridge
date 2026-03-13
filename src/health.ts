@@ -1,5 +1,5 @@
 // Heartbeat y health check del servidor
-// Integration test verified
+// Integration test verified — paso 5
 
 import { listProjects, listSections } from './storage.ts'
 import type { HealthOutput, HealthStatus } from './types.ts'
