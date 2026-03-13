@@ -1,4 +1,4 @@
-// Todos los tipos compartidos del sistema
+// Tipos compartidos del sistema claude-bridge
 
 export type SectionStatus =
   | 'empty'
