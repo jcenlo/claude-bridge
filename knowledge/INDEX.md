@@ -1,7 +1,7 @@
 # PROJECT: claude-bridge
 > stack: Bun, TypeScript, MCP SDK, SQLite (bun:sqlite/D1), Chokidar, Cloudflare Workers, D1, R2, Wrangler
 > status: active
-> last_sync: 2026-03-14T13:01:08.922Z
+> last_sync: 2026-03-14T13:04:02Z
 
 ## sections
 

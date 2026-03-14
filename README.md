@@ -10,7 +10,13 @@ You design something in Claude.ai, then open Claude Code to implement it — but
 doesn't know what you discussed. You implement something in Code, switch back to
 Claude.ai — it has no idea what changed. This bridge eliminates that gap.
 
-## Architecture
+## Demo
+
+> Video coming soon — shows: code change → snapshot auto-update → Claude.ai sees it without copy-paste
+
+Meanwhile, the quick start below gets you running in 5 minutes.
+
+## Architecture: Two modes
 
 ```
 Claude.ai ──► Cloudflare Worker (D1 + R2) ◄── POST /snapshot ── Local watcher
@@ -18,14 +24,33 @@ Claude.ai ──► Cloudflare Worker (D1 + R2) ◄── POST /snapshot ── 
 Claude Code ──► Local Bun server (SQLite + fs) ◄───────────── Chokidar + Git hooks
 ```
 
-**Local mode** (`src/index.ts`): Bun server with bun:sqlite, filesystem, Chokidar watcher.
-Claude Code connects here directly via `http://localhost:3456`.
+The bridge has two entry points that expose the same 12 MCP tools:
 
-**Cloud mode** (`src/worker.ts`): Cloudflare Worker with D1 (SQLite), R2 (object storage),
-stateless JSON-RPC. Claude.ai connects here via OAuth 2.1 + PKCE.
+### Local server (`src/index.ts`) — for Claude Code
 
-Both expose the same 12 MCP tools. The local watcher detects code changes, extracts
-types/interfaces with ctags, and pushes snapshots to the Worker.
+Stateful Bun server with the full feature set:
+- **Watcher**: Chokidar monitors `src/` and regenerates snapshots on every file change
+- **Extractor**: Universal Ctags (or regex fallback) extracts types, interfaces, function signatures
+- **Git hooks**: `post-commit` triggers snapshot updates and pushes to the Worker
+- **Multi-session**: each client gets its own MCP transport instance
+- **Storage**: bun:sqlite for metadata, local filesystem for `.md` files
+
+### Cloudflare Worker (`src/worker.ts`) — for Claude.ai
+
+Stateless serverless function with permanent HTTPS URL:
+- **No watcher, no extractor** — serverless can't run persistent processes or shell commands
+- **Receives snapshots** from the local server via `POST /snapshot`
+- **Storage**: D1 (SQLite compatible) for metadata, R2 (object storage) for `.md` files
+- **Auth**: OAuth 2.1 + PKCE persisted in D1 (tokens survive across Worker isolates)
+- **JSON-RPC direct**: handles MCP protocol without the SDK transport (which needs in-memory session state)
+
+### Deployment combinations
+
+| Setup | Claude Code | Claude.ai | Snapshot updates |
+|-------|------------|-----------|------------------|
+| **Both (recommended)** | Local server | Worker | Automatic — watcher + git hooks push to Worker |
+| **Worker only** | Worker | Worker | Manual — upload `.md` files with `wrangler r2 object put` |
+| **Local only** | Local server | Via tunnel (ephemeral) | Automatic — but tunnel URL changes on restart |
 
 ## Prerequisites
 
