@@ -10,7 +10,10 @@
     "check": "biome check --write .",
     "setup": "bun scripts/setup-hooks.ts",
     "bootstrap": "bun scripts/bootstrap.ts",
-    "cleanup": "bun scripts/cleanup.ts"
+    "cleanup": "bun scripts/cleanup.ts",
+    "daemon:install": "bash scripts/install-daemon.sh",
+    "daemon:uninstall": "bash scripts/uninstall-daemon.sh",
+    "daemon:logs": "tail -f ~/Library/Logs/claude-bridge.log"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

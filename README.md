@@ -76,6 +76,17 @@ claude mcp add --transport http claude-bridge http://localhost:3456
 
 Claude Code now calls `session_init` automatically at the start of every conversation.
 
+### Run as background service (macOS)
+
+```bash
+bun run daemon:install
+# Server now starts automatically at login, restarts if it crashes
+# Logs: ~/Library/Logs/claude-bridge.log
+
+bun run daemon:logs      # tail logs
+bun run daemon:uninstall # remove
+```
+
 ## Deploy to Cloudflare Workers (for Claude.ai)
 
 The local server only accepts connections from localhost. To connect Claude.ai,
