@@ -41,69 +41,6 @@ export interface SyncLogEntry {
   createdAt: string    // ISO
 }
 
-// ---- Tool inputs ----
-
-export interface SessionInitInput {
-  project: string
-  topic?: string
-}
-
-export interface GetContextInput {
-  project: string
-  section: string
-}
-
-export interface GetSnapshotInput {
-  project: string
-  section: string
-}
-
-export interface SaveContextInput {
-  project: string
-  section: string
-  content: string
-  lastReadAt?: string  // ISO — para optimistic locking
-}
-
-export interface SaveSnapshotInput {
-  project: string
-  section: string
-  artifacts: {
-    types?: string
-    signatures?: string
-    schema?: string
-    env?: string
-  }
-}
-
-export interface UpdateIndexInput {
-  project: string
-  section: string
-  status: SectionStatus
-  summary?: string
-}
-
-export interface SearchInput {
-  project: string
-  query: string
-  scope?: 'narrative' | 'snapshots' | 'all'
-}
-
-export interface ListSectionsInput {
-  project?: string
-}
-
-export interface DeleteContextInput {
-  project: string
-  section: string
-  archive?: boolean
-}
-
-export interface KbResetInput {
-  project: string
-  sections?: string[]
-}
-
 // ---- Tool outputs ----
 
 export interface SessionInitOutput {
@@ -124,13 +61,6 @@ export interface SaveContextOutput {
     currentVersion: string
     lastUpdated: string
   }
-}
-
-export interface SearchResult {
-  section: string
-  fragment: string
-  score: number
-  type: 'narrative' | 'snapshot'
 }
 
 export interface HealthOutput {

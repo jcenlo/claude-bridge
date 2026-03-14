@@ -1,0 +1,17 @@
+project: claude-bridge
+mcp_server: http://localhost:3456
+knowledge_path: ./knowledge
+watcher:
+  watch: ./src
+  extensions: [.ts, .tsx, .sql, .prisma]
+  section_mapping:
+    src/db: database
+    src/database: database
+    src/api: api
+    src/routes: api
+    src/auth: auth
+    src/middleware: auth
+    src/components: frontend
+    src/app: frontend
+    src/services: services
+    src/lib: services

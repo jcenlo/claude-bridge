@@ -2,21 +2,23 @@
 // Genera el knowledge base inicial para un proyecto existente
 // Uso: bun scripts/bootstrap.ts --repo /path/to/project --project pinteach
 
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { mkdirSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs'
 import { upsertProject, upsertSection } from '../src/storage.ts'
 import { extractFromFiles, buildSnapshotMd } from '../src/extractor.ts'
 
 const args = process.argv.slice(2)
-const repoArg = args[args.indexOf('--repo') + 1]
-const projectArg = args[args.indexOf('--project') + 1]
+const repoIdx = args.indexOf('--repo')
+const projectIdx = args.indexOf('--project')
+const repoArg = repoIdx >= 0 ? args[repoIdx + 1] : undefined
+const projectArg = projectIdx >= 0 ? args[projectIdx + 1] : undefined
 
 if (!repoArg || !projectArg) {
   console.error('Usage: bun scripts/bootstrap.ts --repo /path/to/project --project project-id')
   process.exit(1)
 }
 
-const repoPath = repoArg
+const repoPath = resolve(repoArg)
 const projectId = projectArg
 const knowledgePath = join(repoPath, 'knowledge')
 
@@ -26,93 +28,114 @@ console.log(`   Knowledge path: ${knowledgePath}\n`)
 
 mkdirSync(knowledgePath, { recursive: true })
 
-// Registra el proyecto
+// Registra el proyecto en la DB
 upsertProject({
   id: projectId,
   path: knowledgePath,
   lastSync: new Date().toISOString(),
 })
 
-// Busca archivos relevantes por tipo
-const sectionMapping: Record<string, string[]> = {
-  database: [],
-  api: [],
-  auth: [],
-  frontend: [],
-  services: [],
+// Patrones de categorización: path fragment → section
+const categoryPatterns: Array<{ patterns: string[]; section: string }> = [
+  { patterns: ['/db/', '/database/', 'schema', 'migration', 'seed'], section: 'database' },
+  { patterns: ['/api/', '/routes/', '/endpoints/', '/handlers/'], section: 'api' },
+  { patterns: ['/auth/', '/middleware/'], section: 'auth' },
+  { patterns: ['/components/', '/pages/', '/app/', '/views/', '/layouts/'], section: 'frontend' },
+  { patterns: ['/services/', '/lib/', '/utils/', '/helpers/'], section: 'services' },
+]
+
+const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', '.next', 'build', 'coverage', 'knowledge'])
+const SOURCE_EXTS = new Set(['ts', 'tsx', 'sql', 'prisma'])
+
+// Clasifica un archivo en una sección
+function classifyFile(relPath: string, fileName: string): string {
+  const lower = relPath.toLowerCase()
+  for (const { patterns, section } of categoryPatterns) {
+    if (patterns.some(p => lower.includes(p))) return section
+  }
+  // Catch-all: archivos que no matchean van a "architecture"
+  return 'architecture'
 }
 
-function scanDir(dir: string): void {
-  if (!existsSync(dir)) return
+// Busca archivos relevantes recursivamente
+function scanDir(dir: string): string[] {
+  const found: string[] = []
+  if (!existsSync(dir)) return found
+
   try {
     const entries = readdirSync(dir)
     for (const entry of entries) {
-      if (['node_modules', '.git', 'dist', '.next', 'build'].includes(entry)) continue
+      if (SKIP_DIRS.has(entry) || entry.startsWith('.')) continue
       const fullPath = join(dir, entry)
       const stat = statSync(fullPath)
 
       if (stat.isDirectory()) {
-        scanDir(fullPath)
+        found.push(...scanDir(fullPath))
       } else {
-        const relPath = fullPath.replace(repoPath + '/', '')
         const ext = entry.split('.').pop() ?? ''
-
-        if (!['ts', 'tsx', 'sql', 'prisma'].includes(ext)) continue
-
-        if (relPath.includes('/db/') || relPath.includes('/database/') || entry.includes('schema') || entry.includes('migration')) {
-          sectionMapping.database?.push(fullPath)
-        } else if (relPath.includes('/api/') || relPath.includes('/routes/') || relPath.includes('/endpoints/')) {
-          sectionMapping.api?.push(fullPath)
-        } else if (relPath.includes('/auth/') || relPath.includes('/middleware/')) {
-          sectionMapping.auth?.push(fullPath)
-        } else if (relPath.includes('/components/') || relPath.includes('/pages/') || relPath.includes('/app/')) {
-          sectionMapping.frontend?.push(fullPath)
-        } else if (relPath.includes('/services/') || relPath.includes('/lib/')) {
-          sectionMapping.services?.push(fullPath)
-        }
+        if (SOURCE_EXTS.has(ext)) found.push(fullPath)
       }
     }
   } catch { /* skip permission errors */ }
+  return found
 }
 
-scanDir(join(repoPath, 'src'))
-scanDir(join(repoPath, 'app'))
-scanDir(join(repoPath, 'lib'))
+// Escanea directorios estándar de código fuente
+const scanDirs = ['src', 'app', 'lib', 'scripts'].map(d => join(repoPath, d))
+const allFiles = scanDirs.flatMap(scanDir)
 
-// Genera snapshots para las secciones que tienen archivos
-const sections: Array<{ id: string; fileCount: number }> = []
+// Agrupa archivos por sección
+const sectionFiles: Record<string, string[]> = {}
+for (const file of allFiles) {
+  const relPath = file.replace(repoPath + '/', '')
+  const fileName = file.split('/').pop() ?? ''
+  const section = classifyFile(relPath, fileName)
+
+  if (!sectionFiles[section]) sectionFiles[section] = []
+  sectionFiles[section]!.push(file)
+}
+
+console.log(`📂 Found ${allFiles.length} source files across ${Object.keys(sectionFiles).length} sections\n`)
+
+// Genera snapshots para cada sección
+const sections: Array<{ id: string; fileCount: number; hasContent: boolean }> = []
 const now = new Date().toISOString()
 
-for (const [section, files] of Object.entries(sectionMapping)) {
-  if (files.length === 0) continue
+for (const [section, files] of Object.entries(sectionFiles)) {
+  if (!files || files.length === 0) continue
 
-  console.log(`📦 Extracting ${section} (${files.length} files)...`)
+  console.log(`📦 ${section} (${files.length} files)`)
+  for (const f of files) {
+    console.log(`   ${f.replace(repoPath + '/', '')}`)
+  }
 
   const result = await extractFromFiles(files)
-  if (result.ok && Object.values(result.value).some(Boolean)) {
+  const hasContent = result.ok && Object.values(result.value).some(Boolean)
+
+  if (hasContent) {
     const snapshotContent = buildSnapshotMd(section, result.value, now)
     writeFileSync(join(knowledgePath, `${section}.snap.md`), snapshotContent)
-
-    // Crea un .md narrativo vacío como placeholder
-    const narrativePath = join(knowledgePath, `${section}.md`)
-    if (!existsSync(narrativePath)) {
-      writeFileSync(narrativePath, `# ${section}\n\n> TODO: add narrative context\n`)
-    }
-
-    upsertSection({
-      id: section,
-      projectId,
-      status: 'in-progress',
-      summary: `${files.length} files detected`,
-      lastUpdated: now,
-    })
-
-    sections.push({ id: section, fileCount: files.length })
   }
+
+  // Crea un .md narrativo vacío como placeholder
+  const narrativePath = join(knowledgePath, `${section}.md`)
+  if (!existsSync(narrativePath)) {
+    writeFileSync(narrativePath, `# ${section}\n\n> TODO: add narrative context\n`)
+  }
+
+  upsertSection({
+    id: section,
+    projectId,
+    status: hasContent ? 'in-progress' : 'empty',
+    summary: `${files.length} files`,
+    lastUpdated: now,
+  })
+
+  sections.push({ id: section, fileCount: files.length, hasContent })
 }
 
 // Genera INDEX.md
-const indexContent = [
+const indexLines = [
   `# PROJECT: ${projectId}`,
   `> stack: (fill this in)`,
   `> status: active`,
@@ -122,46 +145,50 @@ const indexContent = [
   '',
   '| id | file | status | last_updated | summary |',
   '|----|------|--------|--------------|---------|',
-  ...sections.map(s =>
-    `| ${s.id} | /knowledge/${s.id} | in-progress | ${now.slice(0, 10)} | ${s.fileCount} files detected |`
-  ),
-  '',
-  '## active',
-  'working-on: (fill this in)',
-].join('\n')
+]
 
-writeFileSync(join(knowledgePath, 'INDEX.md'), indexContent)
+for (const s of sections) {
+  const status = s.hasContent ? 'in-progress' : 'empty'
+  indexLines.push(
+    `| ${s.id} | /knowledge/${s.id} | ${status} | ${now.slice(0, 10)} | ${s.fileCount} files |`
+  )
+}
 
-// Crea el .claude-bridge config
-const bridgeConfig = `project: ${projectId}
-mcp_server: http://localhost:3456
-knowledge_path: ./knowledge
-watcher:
-  watch: ./src
-  extensions: [.ts, .tsx, .sql, .prisma]
-  section_mapping:
-    src/db: database
-    src/database: database
-    src/api: api
-    src/routes: api
-    src/auth: auth
-    src/middleware: auth
-    src/components: frontend
-    src/app: frontend
-    src/services: services
-    src/lib: services
-`
+indexLines.push('', '## active', 'working-on: (fill this in)', '')
 
+writeFileSync(join(knowledgePath, 'INDEX.md'), indexLines.join('\n'))
+
+// Crea .claude-bridge config si no existe
 const bridgePath = join(repoPath, '.claude-bridge')
 if (!existsSync(bridgePath)) {
+  const bridgeConfig = [
+    `project: ${projectId}`,
+    'mcp_server: http://localhost:3456',
+    'knowledge_path: ./knowledge',
+    'watcher:',
+    '  watch: ./src',
+    '  extensions: [.ts, .tsx, .sql, .prisma]',
+    '  section_mapping:',
+    '    src/db: database',
+    '    src/database: database',
+    '    src/api: api',
+    '    src/routes: api',
+    '    src/auth: auth',
+    '    src/middleware: auth',
+    '    src/components: frontend',
+    '    src/app: frontend',
+    '    src/services: services',
+    '    src/lib: services',
+    '',
+  ].join('\n')
   writeFileSync(bridgePath, bridgeConfig)
-  console.log(`\n✅ Created .claude-bridge`)
+  console.log(`\n📝 Created .claude-bridge`)
 }
 
 console.log(`\n✅ Bootstrap complete!`)
-console.log(`   Sections created: ${sections.map(s => s.id).join(', ')}`)
-console.log(`   Next steps:`)
-console.log(`   1. Edit /knowledge/INDEX.md — fill in stack and working-on`)
-console.log(`   2. Edit each /knowledge/{section}.md — add narrative context`)
-console.log(`   3. Run: bun run dev (to start the MCP server)`)
-console.log(`   4. Configure Claude Code: claude mcp add --transport http claude-bridge http://localhost:3456`)
+console.log(`   Sections: ${sections.map(s => `${s.id} (${s.fileCount} files)`).join(', ')}`)
+console.log(`\n   Next steps:`)
+console.log(`   1. Edit knowledge/INDEX.md — fill in stack and working-on`)
+console.log(`   2. Edit knowledge/{section}.md — add narrative context`)
+console.log(`   3. Run: bun run dev`)
+console.log(`   4. Configure Claude Code: claude mcp add --transport http claude-bridge http://localhost:3456\n`)

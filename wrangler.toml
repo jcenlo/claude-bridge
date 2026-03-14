@@ -1,0 +1,13 @@
+name = "claude-bridge"
+main = "src/worker.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "claude-bridge-db"
+database_id = "e51696e8-718f-4e67-87ac-52a2ec4afdbc"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "claude-bridge-kb"

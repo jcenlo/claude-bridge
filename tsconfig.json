@@ -5,8 +5,10 @@
     "moduleResolution": "bundler",
     "strict": true,
     "noImplicitAny": true,
-    "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "skipLibCheck": true,
     "paths": {
       "@/*": ["./src/*"]
     }

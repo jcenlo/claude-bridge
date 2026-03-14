@@ -4,7 +4,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { join } from 'path'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from 'fs'
 import {
   getProject, upsertProject, listProjects,
   getSection, listSections, upsertSection,
@@ -14,6 +14,31 @@ import {
 import { extractFromFiles, buildSnapshotMd } from './extractor.ts'
 import { getHealth, getSyncWarning } from './health.ts'
 import type { SessionMode, SectionStatus } from './types.ts'
+
+// Rewrites the sections table in INDEX.md from current DB state
+function syncIndexMd(knowledgePath: string, projectId: string): void {
+  const indexPath = join(knowledgePath, 'INDEX.md')
+  if (!existsSync(indexPath)) return
+
+  const content = readFileSync(indexPath, 'utf-8')
+  const sections = listSections(projectId)
+
+  // Build new sections table
+  const tableHeader = '| id | file | status | last_updated | summary |'
+  const tableSep = '|----|------|--------|--------------|---------|'
+  const tableRows = sections.map(s =>
+    `| ${s.id} | /knowledge/${s.id} | ${s.status} | ${s.lastUpdated.slice(0, 10)} | ${s.summary ?? ''} |`
+  )
+
+  // Replace the table between ## sections and ## active (or end of file)
+  const newTable = [tableHeader, tableSep, ...tableRows].join('\n')
+  const updated = content.replace(
+    /\| id \|.*?\n\|[-| ]+\n(?:\|.*\n)*/m,
+    newTable + '\n'
+  )
+
+  writeFileSync(indexPath, updated, 'utf-8')
+}
 
 export function createServer(): McpServer {
   const server = new McpServer({
@@ -212,9 +237,19 @@ If no project is specified, call list_projects first.`,
       lastReadAt: z.string().optional().describe('ISO timestamp of when you last read this section'),
     },
     async ({ project, section, content, lastReadAt }) => {
-      const projectResult = getProject(project)
+      let projectResult = getProject(project)
+
+      // Auto-register project if it doesn't exist (bootstrap flow)
       if (!projectResult.ok) {
-        return { content: [{ type: 'text' as const, text: `Error: ${projectResult.error}` }] }
+        const defaultPath = join(process.cwd(), 'knowledge')
+        projectResult = upsertProject({
+          id: project,
+          path: defaultPath,
+          lastSync: new Date().toISOString(),
+        })
+        if (!projectResult.ok) {
+          return { content: [{ type: 'text' as const, text: `Error: ${projectResult.error}` }] }
+        }
       }
 
       const knowledgePath = projectResult.value.path
@@ -241,7 +276,7 @@ If no project is specified, call list_projects first.`,
         }
       }
 
-      mkdirSync(knowledgePath, { recursive: true })
+      if (!existsSync(knowledgePath)) mkdirSync(knowledgePath, { recursive: true })
       writeFileSync(filePath, content, 'utf-8')
 
       const now = new Date().toISOString()
@@ -276,9 +311,18 @@ If no project is specified, call list_projects first.`,
       }),
     },
     async ({ project, section, artifacts }) => {
-      const projectResult = getProject(project)
+      let projectResult = getProject(project)
+
       if (!projectResult.ok) {
-        return { content: [{ type: 'text' as const, text: `Error: ${projectResult.error}` }] }
+        const defaultPath = join(process.cwd(), 'knowledge')
+        projectResult = upsertProject({
+          id: project,
+          path: defaultPath,
+          lastSync: new Date().toISOString(),
+        })
+        if (!projectResult.ok) {
+          return { content: [{ type: 'text' as const, text: `Error: ${projectResult.error}` }] }
+        }
       }
 
       const knowledgePath = projectResult.value.path
@@ -286,7 +330,7 @@ If no project is specified, call list_projects first.`,
       const snapshotContent = buildSnapshotMd(section, artifacts, now)
       const filePath = join(knowledgePath, `${section}.snap.md`)
 
-      mkdirSync(knowledgePath, { recursive: true })
+      if (!existsSync(knowledgePath)) mkdirSync(knowledgePath, { recursive: true })
       writeFileSync(filePath, snapshotContent, 'utf-8')
       logSync(project, section, 'snapshot', 'claude_code')
 
@@ -310,6 +354,13 @@ If no project is specified, call list_projects first.`,
     },
     async ({ project, section, status, summary }) => {
       updateSectionStatus(project, section, status as SectionStatus, summary)
+
+      // Sync the INDEX.md file to match DB state
+      const projectResult = getProject(project)
+      if (projectResult.ok) {
+        syncIndexMd(projectResult.value.path, project)
+      }
+
       return {
         content: [{ type: 'text' as const, text: JSON.stringify({ success: true }) }],
       }
@@ -434,9 +485,19 @@ If no project is specified, call list_projects first.`,
 
       const knowledgePath = projectResult.value.path
       const filePath = join(knowledgePath, `${section}.md`)
+      const snapPath = join(knowledgePath, `${section}.snap.md`)
 
       if (archive && existsSync(filePath)) {
         renameSync(filePath, join(knowledgePath, `${section}-archived.md`))
+      }
+      if (archive && existsSync(snapPath)) {
+        renameSync(snapPath, join(knowledgePath, `${section}-archived.snap.md`))
+      }
+
+      // Remove non-archived files
+      if (!archive) {
+        if (existsSync(filePath)) unlinkSync(filePath)
+        if (existsSync(snapPath)) unlinkSync(snapPath)
       }
 
       deleteSection(project, section)

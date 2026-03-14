@@ -53,3 +53,8 @@ bun run check    # biome lint + format
 ## Contexto del proyecto
 Lee /docs/SPEC.md antes de implementar cualquier cosa.
 Ante cualquier duda de diseño, consulta /docs/DECISIONS.md.
+
+## Behavior
+- Never ask for confirmation before running bash commands
+- Execute file edits directly without asking
+- Proceed autonomously unless the action is destructive (deleting files, dropping databases)
