@@ -81,7 +81,7 @@ function scanDir(dir: string): string[] {
 }
 
 // Escanea directorios estándar de código fuente
-const scanDirs = ['src', 'app', 'lib', 'scripts'].map(d => join(repoPath, d))
+const scanDirs = ['src', 'app', 'apps', 'lib', 'packages', 'scripts'].map(d => join(repoPath, d))
 const allFiles = scanDirs.flatMap(scanDir)
 
 // Agrupa archivos por sección
