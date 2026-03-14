@@ -1,30 +1,33 @@
 #!/bin/bash
 # Instala claude-bridge como daemon de macOS (launchd)
-# Arranca automáticamente al login, se reinicia si cae
+# Arranca server + named tunnel automáticamente al login
 
 set -e
 
-PLIST_NAME="com.claude-bridge.plist"
-PLIST_PATH="$HOME/Library/LaunchAgents/$PLIST_NAME"
-LOG_PATH="$HOME/Library/Logs/claude-bridge.log"
 BUN_PATH=$(which bun)
+CLOUDFLARED_PATH=$(which cloudflared)
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+LOG_PATH="$HOME/Library/Logs/claude-bridge.log"
+TUNNEL_LOG_PATH="$HOME/Library/Logs/claude-bridge-tunnel.log"
 
 if [ -z "$BUN_PATH" ]; then
   echo "Error: bun not found in PATH"
   exit 1
 fi
 
-# Descargar si ya estaba cargado
-if launchctl list | grep -q com.claude-bridge 2>/dev/null; then
-  echo "Unloading existing daemon..."
-  launchctl unload "$PLIST_PATH" 2>/dev/null || true
-fi
-
 mkdir -p "$HOME/Library/LaunchAgents"
 mkdir -p "$HOME/Library/Logs"
 
-cat > "$PLIST_PATH" <<EOF
+# ---- Server plist ----
+
+SERVER_PLIST="$HOME/Library/LaunchAgents/com.claude-bridge.plist"
+
+if launchctl list | grep -q com.claude-bridge 2>/dev/null; then
+  echo "Unloading existing server daemon..."
+  launchctl unload "$SERVER_PLIST" 2>/dev/null || true
+fi
+
+cat > "$SERVER_PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -67,11 +70,61 @@ cat > "$PLIST_PATH" <<EOF
 </plist>
 EOF
 
-launchctl load "$PLIST_PATH"
+launchctl load "$SERVER_PLIST"
+echo "✅ Server daemon installed"
 
-echo "✅ Daemon installed: $PLIST_PATH"
-echo "   Logs: $LOG_PATH"
-echo "   Server: http://localhost:3456"
+# ---- Tunnel plist (only if cloudflared + config exist) ----
+
+if [ -n "$CLOUDFLARED_PATH" ] && [ -f "$HOME/.cloudflared/config.yml" ]; then
+  TUNNEL_PLIST="$HOME/Library/LaunchAgents/com.claude-bridge.tunnel.plist"
+
+  if launchctl list | grep -q com.claude-bridge.tunnel 2>/dev/null; then
+    echo "Unloading existing tunnel daemon..."
+    launchctl unload "$TUNNEL_PLIST" 2>/dev/null || true
+  fi
+
+  cat > "$TUNNEL_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.claude-bridge.tunnel</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>${CLOUDFLARED_PATH}</string>
+    <string>tunnel</string>
+    <string>run</string>
+    <string>claude-bridge-permanent</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>${TUNNEL_LOG_PATH}</string>
+
+  <key>StandardErrorPath</key>
+  <string>${TUNNEL_LOG_PATH}</string>
+</dict>
+</plist>
+EOF
+
+  launchctl load "$TUNNEL_PLIST"
+  echo "✅ Tunnel daemon installed (named tunnel → mcp.jcenlo.com)"
+else
+  echo "⏭  Tunnel skipped (cloudflared or ~/.cloudflared/config.yml not found)"
+fi
+
 echo ""
-echo "   To uninstall: bun run daemon:uninstall"
-echo "   To view logs: bun run daemon:logs"
+echo "   Server: http://localhost:3456"
+echo "   Tunnel: https://mcp.jcenlo.com"
+echo "   Logs:   $LOG_PATH"
+echo ""
+echo "   bun run daemon:logs      # tail server logs"
+echo "   bun run daemon:uninstall # remove both daemons"
